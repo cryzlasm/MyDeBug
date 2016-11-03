@@ -12,10 +12,15 @@
 #define    DR3    3
 
 //硬件断点属性
-#define    INSTRUCTION_EXECUT    0    //00
-#define    DATAS_WRITES          1    //01
-#define    DATAS_READS_WRITES    3    //11 没产生取指令行为  
+#define    HBP_INSTRUCTION_EXECUT    0      //00  执行
+#define    HBP_DATAS_WRITES          1      //01  写
+#define    HBP_DATAS_READS_WRITES    3      //11  读写  
+#define    HBP_SET                   1      //硬件断电已设置
+#define    HBP_UNSET                 0      //硬件断点未设置
+#define    HBP_HIT                   1      //硬件断点命中
 
+//转换进制
+#define    CONVERT_HEX      16
 
 //模块列表
 typedef struct _tagModLst
@@ -27,16 +32,19 @@ typedef struct _tagModLst
     CString strPath;      //模块路径
 }MODLST, *PMODLST;
 
-enum _enumBreakPoint
+typedef enum _enumBreakPoint
 {
     BP_SYS,             //系统断点，用于断在入口点
     BP_ONCE,            //一次性断点
     BP_NORMAL,          //一般断点
     BP_HARDWARE,        //硬件断点
-    BP_MEM              //内存断点
-};
+    BP_MEM,             //内存断点
+    BP_HARD_READ,       //硬件读
+    BP_HARD_WRITE,      //硬件写
+    BP_HARD_EXEC        //硬件执行
+}BPSTATE, *PBPSTATE;
 
-enum _enumCmd
+typedef enum _enumCmd
 {
     CMD_INVALID,
     CMD_SHOWONCE,            //显示一条信息
@@ -65,17 +73,19 @@ enum _enumCmd
     CMD_QUIT,                //退出程序         q
     CMD_MODULE_LIST,         //查看模块         ML
     CMD_MEM_INFO_LIST        //内存信息列表     mil
-};
+}CMDSTATE, *PCMDSTATE;
 
 
 //断点信息
 typedef struct _tagBreakPoint
 {
-    _enumBreakPoint     dwState;        //断点状态
-    LPVOID              lpAddr;         //断点地址
-    DWORD               dwOldOrder;     //原指令
-    DWORD               dwCurOrder;     //现在的指令
-    BOOL                bIsSingleStep;  //是否设置单步
+    BPSTATE     bpState;        //断点状态
+    LPVOID      lpAddr;         //断点地址
+    DWORD       dwOldOrder;     //原指令
+    DWORD       dwCurOrder;     //现在的指令
+    BOOL        bIsSingleStep;  //是否设置单步
+    DWORD       dwLen;          //断点长度
+    BPSTATE     hbpStatus;       //断点属性  R W E  读 写 执行
 
 }MYBREAK_POINT, *PMYBREAK_POINT;
 
@@ -84,26 +94,26 @@ typedef struct _tagCmdInfo
 {
     BOOL            bIsBreakInputLoop;      //是否结束交互
     DWORD           dwPreAddr;              //上一个Addr的位置
-    _enumCmd        dwState;                //CMD命令码
+    CMDSTATE        dwState;                //CMD命令码
     CString         strCMD;                 //CMD命令操作数
 }CMD_INFO, *PCMD_INFO;
 
 //标志寄存器
 typedef struct _tagEFlags
 {
-    DWORD UnUse:    20; //20    12
-    DWORD dwOF:     1;  //21    11
-    DWORD dwDF:     1;  //22    10
-    DWORD dwIF:     1;  //23    9
-    DWORD dwTF:     1;  //24    8
-    DWORD dwSF:     1;  //25    7
-    DWORD dwZF:     1;  //26    6
-    DWORD UnUse1:   1;  //27    5
-    DWORD dwAF:     1;  //28    4
-    DWORD UnUse2:   1;  //29    3
-    DWORD dwPF:     1;  //30    2
-    DWORD UnUse3:   1;  //31    1
     DWORD dwCF:     1;  //32    0
+    DWORD UnUse3:   1;  //31    1
+    DWORD dwPF:     1;  //30    2
+    DWORD UnUse2:   1;  //29    3
+    DWORD dwAF:     1;  //28    4
+    DWORD UnUse1:   1;  //27    5
+    DWORD dwZF:     1;  //26    6
+    DWORD dwSF:     1;  //25    7
+    DWORD dwTF:     1;  //24    8
+    DWORD dwIF:     1;  //23    9
+    DWORD dwDF:     1;  //22    10
+    DWORD dwOF:     1;  //21    11
+    DWORD UnUse:    20; //20    12
 
 }EFLAGS, *PEFLAGS;
 
@@ -144,4 +154,5 @@ typedef struct _tag_DR6
     unsigned int BT:1;
     unsigned int RESERVED1:16;
 }MYDR6, *PMYDR6;
+
 #endif

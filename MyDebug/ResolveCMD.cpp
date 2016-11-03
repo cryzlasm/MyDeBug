@@ -121,12 +121,17 @@ BOOL CResolveCMD::Resolve(CMD_INFO& CmdInfo)
         {
             CmdInfo.dwState = CMD_BP_LIST;
         }
-        //硬件断点
+        //硬件断点表
         else if(CmdInfo.strCMD == TEXT("bhl"))
         {
             CmdInfo.dwState = CMD_BP_HARD_LIST;
         }
-        //内存断点
+        //硬件断点表
+        else if(CmdInfo.strCMD == TEXT("bhc"))
+        {
+            CmdInfo.dwState = CMD_CLEAR_BP_HARD;
+        }
+        //内存断点表
         else if(CmdInfo.strCMD == TEXT("bml"))
         {
             CmdInfo.dwState = CMD_BP_MEMORY_LIST;
@@ -166,6 +171,7 @@ BOOL CResolveCMD::Resolve(CMD_INFO& CmdInfo)
         {
             CmdInfo.dwState = CMD_CLEAR_NORMAL;
         }
+        //遍历内存页
         else if(CmdInfo.strCMD == TEXT("mil"))
         {
             CmdInfo.dwState = CMD_MEM_INFO_LIST;

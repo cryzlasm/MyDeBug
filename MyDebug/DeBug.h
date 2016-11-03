@@ -79,12 +79,12 @@ public:
     BOOL OnAccessVolationEvent();   //内存访问异常
     
     //显示当前所有调试信息,默认显示一条
-    BOOL ShowCurAllDbg(LPVOID lpAddr, DWORD dwState = CMD_SHOWONCE);    
+    BOOL ShowCurAllDbg(LPVOID lpAddr, CMDSTATE cmdState = CMD_SHOWONCE);    
     
-    BOOL ShowRemoteMem(LPVOID lpAddr);           //显示远程内存
+    BOOL ShowRemoteMem(LPVOID lpAddr, DWORD& dwOutCurAddr);           //显示远程内存
     BOOL ShowRemoteReg();                        //显示远程寄存器
 
-    //显示远程反汇编
+    //显示远程反汇编,默认十条
     BOOL ShowRemoteDisAsm(LPVOID lpAddr, DWORD& dwOutCurAddr, DWORD dwAsmCount = 10);      
 
     //反汇编指定地址一条数据
@@ -101,14 +101,19 @@ public:
     BOOL CmdSetOneStepOver(CMD_INFO& CmdInfo, LPVOID lpAddr);   //单步步过
 
     BOOL CmdShowNormalBpLst(CMD_INFO& CmdInfo, LPVOID lpAddr);  //显示一般断点
+    BOOL CmdShowHardBpLst(CMD_INFO& CmdInfo, LPVOID lpAddr);    //显示硬件断点
 
     BOOL CmdClearNormalBp(CMD_INFO& CmdInfo, LPVOID lpAddr);    //删除一般断点
+    BOOL CmdClearHardBpLst(CMD_INFO& CmdInfo, LPVOID lpAddr);    //显示硬件断点
 
     BOOL ShowMemLst(CMD_INFO& CmdInfo, LPVOID lpAddr);          //显示内存列表
 
 
     static void __stdcall OutErrMsg(_IN_ LPCTSTR strErrMsg);    //输出错误信息
+
 private:
+    BOOL SetHardBreakPoint(LPVOID lpAddr, BPSTATE dwState, DWORD dwLen = 0);  //设置硬件断点
+
     CResolveCMD m_CMD;          //解析CMD
 
     DWORD m_dwErrCount;           //错误计数, 十次错误
@@ -124,12 +129,15 @@ private:
     BOOL m_bIsMyStepInto;       //是否为我自己的单步步入
     BOOL m_bIsMyStepOver;       //是否为我自己的单步步过
 
+    BOOL m_bIsMyHardReSet;         //硬件断点断步配合
+    DWORD m_dwWhichHardReg;        //哪个断点被触发
+
     BOOL m_bIsScript;           //是否为脚本状态
     BOOL m_bIsInput;            //且为无输入状态
 
     CList<PMODLST, PMODLST&>   m_ModuleLst;     //模块链表
     CList<PMYBREAK_POINT, PMYBREAK_POINT&> m_NorMalBpLst;    //一般断点列表
-    CList<PMYBREAK_POINT, PMYBREAK_POINT&> m_SingleStep;    //单步断点列表
+    CList<PMYBREAK_POINT, PMYBREAK_POINT&> m_HardBpLst;      //硬件断点列表
     
     PFN_OpenThread m_pfnOpenThread;
 };

@@ -39,6 +39,10 @@ CDeBug::CDeBug()
     
     m_bIsNormalStep = FALSE;
     m_lpTmpNormalStepAddr = NULL;
+
+    m_bIsMyHardReSet = FALSE;
+
+    m_dwWhichHardReg = 0;
 }
 
 CDeBug::~CDeBug()
@@ -65,6 +69,18 @@ CDeBug::~CDeBug()
         {
             delete pBp;
             m_NorMalBpLst.RemoveAt(posTmp);
+        }
+    }
+
+    pos = m_HardBpLst.GetHeadPosition();
+    while(pos)
+    {
+        posTmp = pos;
+        PMYBREAK_POINT pBp = m_HardBpLst.GetNext(pos);
+        if(pBp != NULL)
+        {
+            delete pBp;
+            m_HardBpLst.RemoveAt(posTmp);
         }
     }
 }
@@ -134,7 +150,7 @@ BOOL CDeBug::Start(TCHAR* argv[])			//≥Ã–Úø™ º
 
 BOOL CDeBug::EventLoop()       //œ˚œ¢—≠ª∑
 {
-    DWORD dwState = DBG_EXCEPTION_NOT_HANDLED;
+    DWORD bpState = DBG_EXCEPTION_NOT_HANDLED;
     BOOL bRet = FALSE;
     
     while(TRUE == WaitForDebugEvent(&m_DbgEvt, INFINITE))
@@ -221,7 +237,7 @@ BOOL CDeBug::EventLoop()       //œ˚œ¢—≠ª∑
         
         //»Áπ˚“—æ≠¥¶¿Ì£¨‘Ú∑µªÿ“—¥¶¿Ì£¨∑Ò‘Úƒ¨»œ∑µªÿ√ª¥¶¿Ì
         if(bRet)
-            dwState = DBG_CONTINUE;
+            bpState = DBG_CONTINUE;
         
         //m_DstContext.Dr6 = 0;
         
@@ -248,7 +264,7 @@ BOOL CDeBug::EventLoop()       //œ˚œ¢—≠ª∑
         //…Ë÷√¥¶¿Ì◊¥Ã¨
         if(ContinueDebugEvent(m_DbgEvt.dwProcessId, 
             m_DbgEvt.dwThreadId, 
-            dwState) == FALSE)
+            bpState) == FALSE)
         {
             return FALSE;
         }
@@ -320,6 +336,10 @@ BOOL CDeBug::Interaction(LPVOID lpAddr, BOOL bIsShowDbgInfo)                //»À
 #define MAX_INPUT   32
 BOOL CDeBug::GetUserInput(CMD_INFO& CmdInfo)
 {
+    if(CmdInfo.dwState != CMD_DISPLAY_DATA && CmdInfo.dwState != CMD_DISPLAY_ASMCODE)
+    {
+        CmdInfo.dwPreAddr = NULL;
+    }
     CmdInfo.strCMD = TEXT("");
     try
     {   
@@ -396,13 +416,13 @@ BOOL CDeBug::OnBreakPointEvent()       //“ª∞„∂œµ„
         m_DstContext.Eip = m_DstContext.Eip - 1;
         
         //œµÕ≥“ª¥Œ–‘∂œµ„£¨”√”⁄∂œ‘⁄»Îø⁄µ„
-        if(bp->dwState == BP_SYS || bp->dwState == BP_ONCE)
+        if(bp->bpState == BP_SYS || bp->bpState == BP_ONCE)
         {
             m_NorMalBpLst.RemoveAt(pos);
             delete bp;
         }
         //≥£πÊ∂œµ„
-        else if(bp->dwState == BP_NORMAL)
+        else if(bp->bpState == BP_NORMAL)
         {
             //…Ë÷√µ•≤Ω±Í÷æŒª
             m_DstContext.EFlags |= TF;
@@ -422,10 +442,13 @@ BOOL CDeBug::OnBreakPointEvent()       //“ª∞„∂œµ„
 
 BOOL CDeBug::OnSingleStepEvent()       //µ•≤Ω“Ï≥£
 {
+    BOOL bRet = FALSE;
     EXCEPTION_RECORD& pExceptionRecord = m_DbgEvt.u.Exception.ExceptionRecord; 
     POSITION pos = NULL;
-    
-    //∆‰À˚∂œµ„
+    PMYDR6 Dr6 = (PMYDR6)&(m_DstContext.Dr6);
+    PMYDR7 Dr7 = (PMYDR7)&(m_DstContext.Dr7);
+
+    //“ª∞„∂œµ„
     if(m_bIsNormalStep)
     {
         if(IsAddrInBpList(m_lpTmpNormalStepAddr, m_NorMalBpLst, pos))
@@ -441,17 +464,144 @@ BOOL CDeBug::OnSingleStepEvent()       //µ•≤Ω“Ï≥£
                 
                 bp->bIsSingleStep = FALSE;
                 m_bIsNormalStep = FALSE;
-                return Interaction(pExceptionRecord.ExceptionAddress, FALSE);
+                bRet = Interaction(pExceptionRecord.ExceptionAddress, FALSE);
             }
         }
     }
-    else if(m_bIsMyStepInto)
+
+    //F7µ•≤Ω
+    if(m_bIsMyStepInto)
     {
         m_bIsMyStepInto = FALSE;
-        return Interaction(pExceptionRecord.ExceptionAddress);
+        //»Áπ˚µ•≤Ω”Î“ª∞„Õ¨ ±¿¥£¨‘Ú≤ªœ‘ æµ⁄∂˛¥Œ ‰»Î
+        if(!bRet)
+        {
+            bRet = Interaction(pExceptionRecord.ExceptionAddress);
+        }
     }
+
+    //”≤º˛∂œµ„µƒ∂œ≤Ω≈‰∫œ
+    if(m_bIsMyHardReSet)
+    {
+        switch(m_dwWhichHardReg)
+        {
+        case 0:
+            Dr7->L0 = HBP_SET;
+            break;
+
+        case 1:
+            Dr7->L1 = HBP_SET;
+            break;
+
+        case 2:
+            Dr7->L2 = HBP_SET;
+            break;
+
+        case 3:
+            Dr7->L3 = HBP_SET;
+            break;
+        }
+        m_bIsMyHardReSet = FALSE;
+
+        //»Áπ˚µ•≤Ω”Î”≤∂œÕ¨ ±¿¥£¨‘Ú≤ªœ‘ æµ⁄∂˛¥Œ ‰»Î
+        if(!bRet)
+        {
+            bRet = Interaction(pExceptionRecord.ExceptionAddress, FALSE);
+        }
+        
+    }
+
+    //”≤∂œ1∫≈√¸÷–
+    if(Dr6->B0 == HBP_HIT)
+    {
+        m_dwWhichHardReg = 0;
+        Dr7->L0 = HBP_UNSET;
+        if(Dr7->RW0 == HBP_INSTRUCTION_EXECUT)
+        {
+            ShowCurAllDbg(pExceptionRecord.ExceptionAddress, CMD_SHOWFIVE);
+            
+            _tprintf(TEXT("”≤º˛÷¥––∂œµ„√¸÷–\r\n"));
+
+            //∂œ≤Ω≈‰∫œ,÷ÿ…Ë∂œµ„
+            m_bIsMyHardReSet = TRUE;
+            m_DstContext.EFlags |= TF;
+            bRet = TRUE;
+        }
+        else
+        {
+            _tprintf(TEXT("”≤º˛≤Ÿ◊˜∂œµ„√¸÷–\r\n"));
+            bRet = Interaction(pExceptionRecord.ExceptionAddress);
+        }
+    }
+    //”≤∂œ2∫≈√¸÷–
+    else if(Dr6->B1 == HBP_HIT)
+    {
+        m_dwWhichHardReg = 1;
+        Dr7->L1 = HBP_UNSET;
+        if(Dr7->RW1 == HBP_INSTRUCTION_EXECUT)
+        {
+            ShowCurAllDbg(pExceptionRecord.ExceptionAddress, CMD_SHOWFIVE);
+            
+            _tprintf(TEXT("”≤º˛÷¥––∂œµ„√¸÷–\r\n"));
+            
+            //∂œ≤Ω≈‰∫œ,÷ÿ…Ë∂œµ„
+            m_bIsMyHardReSet = TRUE;
+            m_DstContext.EFlags |= TF;
+            bRet = TRUE;
+        }
+        else
+        {
+            _tprintf(TEXT("”≤º˛≤Ÿ◊˜∂œµ„√¸÷–\r\n"));
+            bRet = Interaction(pExceptionRecord.ExceptionAddress);
+        }
+    }
+    //”≤∂œ3∫≈√¸÷–
+    else if(Dr6->B2 == HBP_HIT)
+    {
+        m_dwWhichHardReg = 2;
+        Dr7->L2 = HBP_UNSET;
+        if(Dr7->RW2 == HBP_INSTRUCTION_EXECUT)
+        {
+            ShowCurAllDbg(pExceptionRecord.ExceptionAddress, CMD_SHOWFIVE);
+            
+            _tprintf(TEXT("”≤º˛÷¥––∂œµ„√¸÷–\r\n"));
+            
+            //∂œ≤Ω≈‰∫œ,÷ÿ…Ë∂œµ„
+            m_bIsMyHardReSet = TRUE;
+            m_DstContext.EFlags |= TF;
+            bRet = TRUE;
+        }
+        else
+        {
+            _tprintf(TEXT("”≤º˛≤Ÿ◊˜∂œµ„√¸÷–\r\n"));
+            bRet = Interaction(pExceptionRecord.ExceptionAddress);
+        }
+    }
+    //”≤∂œ4∫≈√¸÷–
+    else if(Dr6->B3 == HBP_HIT)
+    {
+        m_dwWhichHardReg = 3;
+        Dr7->L3 = HBP_UNSET;
+        if(Dr7->RW3 == HBP_INSTRUCTION_EXECUT)
+        {
+            ShowCurAllDbg(pExceptionRecord.ExceptionAddress, CMD_SHOWFIVE);
+            
+            _tprintf(TEXT("”≤º˛÷¥––∂œµ„√¸÷–\r\n"));
+            
+            //∂œ≤Ω≈‰∫œ,÷ÿ…Ë∂œµ„
+            m_bIsMyHardReSet = TRUE;
+            m_DstContext.EFlags |= TF;
+            bRet = TRUE;
+        }
+        else
+        {
+            _tprintf(TEXT("”≤º˛≤Ÿ◊˜∂œµ„√¸÷–\r\n"));
+            bRet = Interaction(pExceptionRecord.ExceptionAddress);
+        }
+    }
+
     
-    return FALSE;
+    return bRet;
 }
 
 BOOL CDeBug::OnAccessVolationEvent()   //ƒ⁄¥Ê∑√Œ “Ï≥£
@@ -463,16 +613,16 @@ BOOL CDeBug::OnAccessVolationEvent()   //ƒ⁄¥Ê∑√Œ “Ï≥£
     return FALSE;
 }
 
-BOOL CDeBug::ShowCurAllDbg(LPVOID lpAddr, DWORD dwState)  //œ‘ æµ±«∞À˘”–µ˜ ‘–≈œ¢
+BOOL CDeBug::ShowCurAllDbg(LPVOID lpAddr, CMDSTATE cmdState)  //œ‘ æµ±«∞À˘”–µ˜ ‘–≈œ¢
 {
     //ShowRemoteMem(lpAddr);
     ShowRemoteReg();
     DWORD dwCount = 1;
     DWORD dwNotUse = 0;
     
-    if(dwState == CMD_SHOWONCE)
+    if(cmdState == CMD_SHOWONCE)
         dwCount = 1;
-    else if(dwState == CMD_SHOWFIVE)
+    else if(cmdState == CMD_SHOWFIVE)
         dwCount = 5;
     else
         dwCount = 10;
@@ -487,13 +637,16 @@ BOOL CDeBug::ShowCurAllDbg(LPVOID lpAddr, DWORD dwState)  //œ‘ æµ±«∞À˘”–µ˜ ‘–≈œ¢
 BOOL CDeBug::CmdShowAsm(CMD_INFO& CmdInfo, LPVOID lpAddr)  //œ‘ æ∑¥ª„±‡
 {
     BOOL bRet = TRUE;
+    
+    int nAddr = 0;
+
+    //≤Èø¥÷∏∂®ƒ⁄¥Ê
     if(CmdInfo.strCMD.GetLength() >1)
     {
-        int nAddr = 0;
         if(CmdInfo.dwPreAddr == NULL)
         {
             PTCHAR pTmp = NULL;
-            nAddr = _tcstol((LPCTSTR)CmdInfo.strCMD, &pTmp, 16);
+            nAddr = _tcstol((LPCTSTR)CmdInfo.strCMD, &pTmp, CONVERT_HEX);
         }
         else
         {
@@ -502,9 +655,15 @@ BOOL CDeBug::CmdShowAsm(CMD_INFO& CmdInfo, LPVOID lpAddr)  //œ‘ æ∑¥ª„±‡
         //int nAddr = atoi(CmdInfo.strCMD);
         bRet = ShowRemoteDisAsm((LPVOID)nAddr, CmdInfo.dwPreAddr);
     }
+    //≤Èø¥µ±«∞ƒ⁄¥Ê
     else
     {
-        bRet = ShowRemoteDisAsm(lpAddr, CmdInfo.dwPreAddr);
+        if(CmdInfo.dwPreAddr == NULL)
+            nAddr = (int)lpAddr;
+        else
+            nAddr = CmdInfo.dwPreAddr;
+
+        bRet = ShowRemoteDisAsm((LPVOID)nAddr, CmdInfo.dwPreAddr);
     }
     
     return bRet;
@@ -513,23 +672,36 @@ BOOL CDeBug::CmdShowAsm(CMD_INFO& CmdInfo, LPVOID lpAddr)  //œ‘ æ∑¥ª„±‡
 BOOL CDeBug::CmdShowMem(CMD_INFO& CmdInfo, LPVOID lpAddr)
 {
     BOOL bRet = TRUE;
+    int nAddr = 0;
     if(CmdInfo.strCMD.GetLength() >1)
     {
-        PTCHAR pTmp = NULL;
-        int nAddr = _tcstol(CmdInfo.strCMD, &pTmp, 16);
+        if(CmdInfo.dwPreAddr == NULL)
+        {
+            PTCHAR pTmp = NULL;
+            nAddr = _tcstol(CmdInfo.strCMD, &pTmp, CONVERT_HEX);
+        }
+        else
+        {
+            nAddr = CmdInfo.dwPreAddr;
+        }
         //int nAddr = atoi(CmdInfo.strCMD);
-        bRet = ShowRemoteMem((LPVOID)nAddr);
+        bRet = ShowRemoteMem((LPVOID)nAddr, CmdInfo.dwPreAddr);
     }
     else
     {
-        bRet = ShowRemoteMem(lpAddr);
+        if(CmdInfo.dwPreAddr == NULL)
+            nAddr = (int)lpAddr;
+        else
+            nAddr = CmdInfo.dwPreAddr;
+
+        bRet = ShowRemoteMem((LPVOID)nAddr, CmdInfo.dwPreAddr);
     }
     
     return bRet;
 }
 
 #define RemoteOneReadSize 0x60  //“ª¥Œ∂¡»°‘∂≥Ã ˝æ›µƒ≥§∂»
-BOOL CDeBug::ShowRemoteMem(LPVOID lpAddr)           //œ‘ æ‘∂≥Ãƒ⁄¥Ê
+BOOL CDeBug::ShowRemoteMem(LPVOID lpAddr, DWORD& dwOutCurAddr)           //œ‘ æ‘∂≥Ãƒ⁄¥Ê
 {
     DWORD dwAddr = (DWORD)lpAddr;
     DWORD dwRead = 0;
@@ -575,7 +747,7 @@ BOOL CDeBug::ShowRemoteMem(LPVOID lpAddr)           //œ‘ æ‘∂≥Ãƒ⁄¥Ê
         dwAddr += 0x10;
         pszBuf += 0x10;
     }
-    
+    dwOutCurAddr = dwAddr;
     return TRUE;
 }
 
@@ -703,7 +875,7 @@ BOOL CDeBug::ShowRemoteDisAsm(LPVOID lpAddr, DWORD& dwOutCurAddr, DWORD dwAsmCou
         unCount++;
         unCodeAddress += unCodeSize;
     }
-    dwOutCurAddr = unCodeSize;
+    dwOutCurAddr = unCodeAddress;
     
     return TRUE;
 }
@@ -740,7 +912,7 @@ BOOL CDeBug::OnCreateProcessEvent()
     PMYBREAK_POINT ptagBp = new MYBREAK_POINT;
     ZeroMemory(ptagBp, sizeof(MYBREAK_POINT));
     
-    ptagBp->dwState = BP_SYS;
+    ptagBp->bpState = BP_SYS;
     ptagBp->lpAddr = lpEntryPoint;
     ptagBp->dwCurOrder = NORMAL_CC;
     
@@ -939,7 +1111,7 @@ BOOL CDeBug::CmdSetNormalBp(CMD_INFO& CmdInfo, LPVOID lpAddr)      //…Ë÷√“ª∞„∂œµ
     {
         //◊™ªª≤Ÿ◊˜ ˝
         PTCHAR pTmp = NULL;
-        int nAddr = _tcstol(CmdInfo.strCMD, &pTmp, 16);
+        int nAddr = _tcstol(CmdInfo.strCMD, &pTmp, CONVERT_HEX);
         
         //ºÏ≤È «∑Ò≥¨∑∂Œß
         if((DWORD)nAddr > MAX_MEM)
@@ -957,14 +1129,14 @@ BOOL CDeBug::CmdSetNormalBp(CMD_INFO& CmdInfo, LPVOID lpAddr)      //…Ë÷√“ª∞„∂œµ
         }
         ZeroMemory(ptagBp, sizeof(MYBREAK_POINT));
         
-        ptagBp->dwState = BP_NORMAL;
+        ptagBp->bpState = BP_NORMAL;
         ptagBp->lpAddr = (LPVOID)nAddr;
         ptagBp->dwCurOrder = NORMAL_CC;
         
         //…Ë÷√CC∂œµ„
         if(!WriteRemoteCode(ptagBp->lpAddr, ptagBp->dwCurOrder, ptagBp->dwOldOrder))
         {
-            tcout << TEXT("œµÕ≥∂œµ„: —œ÷ÿBUG£¨«Î¡™œµπ‹¿Ì‘±£°") << endl;
+            tcout << TEXT("Œﬁ–ßƒ⁄¥Ê£¨Œﬁ∑®…Ë÷√∂œµ„£°@") << endl;
             
             // Õ∑≈◊ ‘¥
             if(ptagBp != NULL)
@@ -985,8 +1157,325 @@ BOOL CDeBug::CmdSetNormalBp(CMD_INFO& CmdInfo, LPVOID lpAddr)      //…Ë÷√“ª∞„∂œµ
     return TRUE;
 }
 
+
+BOOL CDeBug::CmdShowHardBpLst(CMD_INFO& CmdInfo, LPVOID lpAddr)    //œ‘ æ”≤º˛∂œµ„
+{    
+    DWORD dwCount = 0;
+    POSITION pos = m_HardBpLst.GetHeadPosition();
+    tcout << TEXT("=====================”≤º˛∂œµ„=====================") << endl;
+    if(m_HardBpLst.IsEmpty())
+    {
+        tcout << TEXT("‘›Œﬁ") << endl;
+    }
+    else
+    {
+        while(pos)
+        {
+            MYBREAK_POINT& Bp = *m_HardBpLst.GetNext(pos);
+            _tprintf(TEXT("\t–Ú∫≈£∫%d\tµÿ÷∑£∫%p\t"), dwCount++, (DWORD)Bp.lpAddr);
+            switch(Bp.hbpStatus)
+            {
+            case BP_HARD_EXEC:
+                _tprintf(TEXT("◊¥Ã¨£∫”≤º˛÷¥––\r\n"));
+                break;
+            case BP_HARD_READ:
+                _tprintf(TEXT("◊¥Ã¨£∫”≤º˛∂¡»°\r\n"));
+                break;
+            case BP_HARD_WRITE:
+                _tprintf(TEXT("◊¥Ã¨£∫”≤º˛–¥»Î\r\n"));
+                break;
+            }
+        }
+    }
+    
+    tcout << TEXT("=====================”≤º˛∂œµ„=====================") << endl;
+    
+    return TRUE;
+}
+
+BOOL CDeBug::CmdClearHardBpLst(CMD_INFO& CmdInfo, LPVOID lpAddr)    //œ‘ æ”≤º˛∂œµ„
+{
+    CmdShowHardBpLst(CmdInfo, lpAddr);
+    if(!m_HardBpLst.IsEmpty())
+    {
+        BOOL bIsDel = FALSE;
+        DWORD dwNum = 0;
+        DWORD dwLstCount = m_HardBpLst.GetCount();
+        
+        while(TRUE)
+        {
+            //ªÒ»°”√ªß ‰»Î
+            tcout << TEXT("«Î ‰»Î±‡∫≈£∫") ;
+            _tscanf(TEXT("%d"), &dwNum);
+            if(dwNum < 0 || dwNum >= dwLstCount)
+            {
+                tcout << TEXT(" ‰»Î±‡∫≈”–ŒÛ£°") << endl;
+                continue;
+            }
+            
+            //±È¿˙¡¥±Ì
+            POSITION pos = m_HardBpLst.GetHeadPosition();
+            POSITION posTmp = NULL;
+            while(pos)
+            {
+                posTmp = pos;
+                MYBREAK_POINT& bp = *m_HardBpLst.GetNext(pos);
+                
+                if(0 == dwNum--)
+                {
+                    //“∆≥˝Ω⁄µ„
+                    m_HardBpLst.RemoveAt(posTmp);
+
+                    //…Ë÷√◊Ó∫Û“ª∏ˆ”≤∂œŒ™ø’
+                    MYDR7& Dr7 = *(PMYDR7)(&m_DstContext.Dr7);
+                    switch(m_HardBpLst.GetCount())
+                    {
+                    case 0:
+                        m_DstContext.Dr0 = 0;   //ÃÓ–¥µÿ÷∑
+                        Dr7.L0 = HBP_UNSET;                   //…Ë÷√”≤º˛∂œµ„∆Ù”√
+                        Dr7.RW0 = 0;                //…Ë÷√”≤º˛∂œµ„µƒ◊¥Ã¨
+                        Dr7.LEN0 = 0;                   //∂œµ„≥§∂» 1 2 4
+                        break;
+                        
+                    case 1:
+                        m_DstContext.Dr1 = 0;
+                        Dr7.L1 = HBP_UNSET;
+                        Dr7.RW1 = 0;
+                        Dr7.LEN1 = 0;
+                        break;
+                        
+                    case 2:
+                        m_DstContext.Dr2 = 0;
+                        Dr7.L2 = HBP_UNSET;
+                        Dr7.RW2 = 0;
+                        Dr7.LEN2 = 0;
+                        break;
+
+                    case 3:
+                        m_DstContext.Dr2 = 0;
+                        Dr7.L3 = HBP_UNSET;
+                        Dr7.RW3 = 0;
+                        Dr7.LEN3 = 0;
+                        break;
+                    }//End Switch
+                    
+                    //÷ÿ…Ë”≤º˛∂œµ„
+                    POSITION posHBP = m_HardBpLst.GetHeadPosition();
+                    DWORD dwNodeCount = 0;
+
+                    //±È¿˙¡¥±Ì
+                    while(posHBP)
+                    {
+                        MYBREAK_POINT& hBP = *m_HardBpLst.GetNext(posHBP);
+                        DWORD dwBPState = 0;
+
+                        //ªÒ»°◊¥Ã¨
+                        switch(hBP.hbpStatus)
+                        {
+                        case BP_HARD_EXEC:
+                            dwBPState = HBP_INSTRUCTION_EXECUT;
+                            break;
+                        case BP_HARD_WRITE:
+                            dwBPState = HBP_DATAS_READS_WRITES;
+                            break;
+                        case BP_HARD_READ:
+                            dwBPState = HBP_DATAS_READS_WRITES;
+                            break;
+                        }//End Switch
+                        
+                        //…Ë÷√”≤∂œ
+                        switch(dwNodeCount++)
+                        {
+                        case 0:
+                            m_DstContext.Dr0 = (DWORD)lpAddr;   //ÃÓ–¥µÿ÷∑
+                            Dr7.L0 = HBP_SET;                   //…Ë÷√”≤º˛∂œµ„∆Ù”√
+                            Dr7.RW0 = dwBPState;                //…Ë÷√”≤º˛∂œµ„µƒ◊¥Ã¨
+                            Dr7.LEN0 = hBP.dwLen;                   //∂œµ„≥§∂» 1 2 4
+                            break;
+        
+                        case 1:
+                            m_DstContext.Dr1 = (DWORD)lpAddr;
+                            Dr7.L1 = HBP_SET;
+                            Dr7.RW1 = dwBPState;
+                            Dr7.LEN1 = hBP.dwLen;
+                            break;
+        
+                        case 2:
+                            m_DstContext.Dr2 = (DWORD)lpAddr;
+                            Dr7.L2 = HBP_SET;
+                            Dr7.RW2 = dwBPState;
+                            Dr7.LEN2 = hBP.dwLen;
+                            break;
+                        }//End Switch
+                    }//End  while(posHBP)
+                    
+                    bIsDel = TRUE;
+                    break;
+                }//End if(0 == dwNum--)
+            }//End while(pos)
+            if(bIsDel)
+            {
+                tcout << TEXT("≥…π¶") << endl;
+                break;
+            }
+        }
+    }
+    return TRUE;
+}
+
 BOOL CDeBug::CmdSetHardBp(CMD_INFO& CmdInfo, LPVOID lpAddr)        //…Ë÷√”≤º˛∂œµ„
 {
+    BOOL bRet = TRUE;
+    //≈–∂œ”≤º˛∂œµ„±Ìªπ”–√ª”–Œª÷√
+    if(m_HardBpLst.GetCount() < 4)
+    {
+        int nPos = CmdInfo.strCMD.Find(TEXT(' '));
+        if(nPos != -1)
+        {
+            //≤∑÷÷∏¡Ó
+            int nAddr = 0;
+            PCHAR pNoUse = NULL;
+            CString strAddr = CmdInfo.strCMD.Left(nPos);
+            CString strOther = CmdInfo.strCMD.Right(CmdInfo.strCMD.GetLength() - nPos - 1);
+
+            //≈–∂œµÿ÷∑ «∑Ò≥¨∑∂Œß
+            nAddr = _tcstol(strAddr, &pNoUse, CONVERT_HEX);
+            if(nAddr < 0 || (DWORD)nAddr > MAX_MEM)
+            {
+                tcout << TEXT("µÿ÷∑≥¨∑∂Œß") << endl;
+                return TRUE;
+            }
+            
+            nPos = strOther.Find(TEXT(' '));
+            if(nPos != -1)
+            {
+                strOther.Right(strOther.GetLength() - nPos - 1);
+                
+                //≤∑÷≤Ÿ◊˜¬Î
+                nPos = strOther.Find(TEXT(' '));
+                if(nPos != -1)
+                {
+                    int nNum = 0;
+                    CString strOperate = strOther.Left(nPos);
+                    CString strNum = strOther.Right(strOther.GetLength() - nPos - 1);
+                    if(strNum.GetLength() > 0)
+                    {
+                        nNum = _tcstol(strNum, &pNoUse, CONVERT_HEX);
+                        if(nNum < 1 || nNum > 4 || nNum == 3)
+                        {
+                            tcout << TEXT("‘›Œ¥÷ß≥÷µƒ√¸¡Ó") << endl;
+                            return TRUE;
+                        }
+                    }
+                    else
+                    {
+                        tcout << TEXT("‘›Œ¥÷ß≥÷µƒ√¸¡Ó") << endl;
+                        return TRUE;
+                    }
+
+                    //”≤º˛÷¥––
+                    if(strOperate == TEXT("e"))
+                    {
+                        bRet = SetHardBreakPoint((LPVOID)nAddr, BP_HARD_EXEC);
+                    }
+                    else if(strOperate == TEXT("r"))
+                    {
+                        bRet = SetHardBreakPoint((LPVOID)nAddr, BP_HARD_READ, nNum);
+                    }
+                    else if(strOperate == TEXT("w"))
+                    {
+                        bRet = SetHardBreakPoint((LPVOID)nAddr, BP_HARD_WRITE, nNum);
+                    }
+                }
+                else
+                {
+                    tcout << TEXT("‘›Œ¥÷ß≥÷µƒ√¸¡Ó") << endl;
+                }
+            }
+            //”≤º˛÷¥––
+            else if(strOther.Find(TEXT("e")) != -1)
+            {
+                bRet = SetHardBreakPoint((LPVOID)nAddr, BP_HARD_EXEC);
+            }
+            else
+            {
+                tcout << TEXT("‘›Œ¥÷ß≥÷µƒ√¸¡Ó") << endl;
+            }
+        }
+    }
+    else
+    {
+        tcout << TEXT("‘›÷ª÷ß≥÷4∏ˆ”≤º˛∂œµ„!") << endl;
+    }
+    return bRet;
+}
+
+
+BOOL CDeBug::SetHardBreakPoint(LPVOID lpAddr, BPSTATE bpState, DWORD dwLen)  //…Ë÷√”≤º˛∂œµ„
+{
+    PMYBREAK_POINT pBP = new MYBREAK_POINT;
+    if(pBP == NULL)
+    {
+        OutErrMsg(TEXT("SetHardBreakPoint: …Í«ÎΩ⁄µ„ ß∞‹£°"));
+
+        return FALSE;
+    }
+    ZeroMemory(pBP, sizeof(MYBREAK_POINT));
+
+    pBP->lpAddr = lpAddr;
+    pBP->bpState = BP_HARDWARE;
+    pBP->hbpStatus = bpState;
+    pBP->dwLen = dwLen;
+    
+    DWORD dwBPState = 0;
+    switch(bpState)
+    {
+    case BP_HARD_EXEC:
+        dwBPState = HBP_INSTRUCTION_EXECUT;
+        break;
+    case BP_HARD_WRITE:
+        dwBPState = HBP_DATAS_READS_WRITES;
+        break;
+    case BP_HARD_READ:
+        dwBPState = HBP_DATAS_READS_WRITES;
+        break;
+    }
+    
+    MYDR7& Dr7 = *(PMYDR7)(&m_DstContext.Dr7);
+    switch(m_HardBpLst.GetCount())
+    {
+    case 0:
+        m_DstContext.Dr0 = (DWORD)lpAddr;   //ÃÓ–¥µÿ÷∑
+        Dr7.L0 = HBP_SET;                   //…Ë÷√”≤º˛∂œµ„∆Ù”√
+        Dr7.RW0 = dwBPState;                //…Ë÷√”≤º˛∂œµ„µƒ◊¥Ã¨
+        Dr7.LEN0 = dwLen;                   //∂œµ„≥§∂» 1 2 4
+        break;
+
+    case 1:
+        m_DstContext.Dr1 = (DWORD)lpAddr;
+        Dr7.L1 = HBP_SET;
+        Dr7.RW1 = dwBPState;
+        Dr7.LEN1 = dwLen;
+        break;
+
+    case 2:
+        m_DstContext.Dr2 = (DWORD)lpAddr;
+        Dr7.L2 = HBP_SET;
+        Dr7.RW2 = dwBPState;
+        Dr7.LEN2 = dwLen;
+        break;
+
+    case 3:
+        m_DstContext.Dr3 = (DWORD)lpAddr;
+        Dr7.L3 = HBP_SET;
+        Dr7.RW3 = dwBPState;
+        Dr7.LEN3 = dwLen;
+        break;
+    }
+    
+    m_HardBpLst.AddTail(pBP);
+
+
     return TRUE;
 }
 
@@ -1018,7 +1507,7 @@ BOOL CDeBug::CmdSetOneStepOver(CMD_INFO& CmdInfo, LPVOID lpAddr)   //µ•≤Ω≤Ωπ˝
         PMYBREAK_POINT ptagBp = new MYBREAK_POINT;
         ZeroMemory(ptagBp, sizeof(MYBREAK_POINT));
         
-        ptagBp->dwState = BP_ONCE;
+        ptagBp->bpState = BP_ONCE;
         ptagBp->lpAddr = (LPVOID)(m_DstContext.Eip + dwCount);
         ptagBp->dwCurOrder = NORMAL_CC;
         
@@ -1132,7 +1621,7 @@ BOOL CDeBug::CmdShowNormalBpLst(CMD_INFO& CmdInfo, LPVOID lpAddr)  //œ‘ æ“ª∞„∂œµ
 {
     DWORD dwCount = 0;
     POSITION pos = m_NorMalBpLst.GetHeadPosition();
-    tcout << TEXT("=====================ƒ⁄¥Ê∂œµ„=====================") << endl;
+    tcout << TEXT("=====================“ª∞„∂œµ„=====================") << endl;
     if(m_NorMalBpLst.IsEmpty())
     {
         tcout << TEXT("‘›Œﬁ") << endl;
@@ -1146,7 +1635,7 @@ BOOL CDeBug::CmdShowNormalBpLst(CMD_INFO& CmdInfo, LPVOID lpAddr)  //œ‘ æ“ª∞„∂œµ
         }
     }
     
-    tcout << TEXT("=====================ƒ⁄¥Ê∂œµ„=====================") << endl;
+    tcout << TEXT("=====================“ª∞„∂œµ„=====================") << endl;
     
     return TRUE;
 }
@@ -1404,14 +1893,17 @@ BOOL CDeBug::HandleCmd(CMD_INFO& CmdInfo, LPVOID lpAddr)          //÷¥––√¸¡Ó
         
         //”≤º˛∂œµ„
     case CMD_BP_HARD:
+        CmdSetHardBp(CmdInfo, lpAddr);
         break;
         
         //”≤º˛∂œµ„¡–±Ì
     case CMD_BP_HARD_LIST:
+        CmdShowHardBpLst(CmdInfo, lpAddr);
         break;
         
         //«Â≥˝”≤º˛∂œµ„¡–±Ì
     case CMD_CLEAR_BP_HARD:
+        CmdClearHardBpLst(CmdInfo, lpAddr);
         break;
         
         //ƒ⁄¥Ê∂œµ„
