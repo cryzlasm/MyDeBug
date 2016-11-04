@@ -129,13 +129,16 @@ private:
     HANDLE m_hDstThread;    //目标进程当前线程
 
     BOOL    m_bIsNormalStep;       //是否为待修补常规断点的单步
-    LPVOID  m_lpTmpNormalStepAddr;  //临时存储，修补单步断点的地址
+    LPVOID  m_lpTmpStepAddr;  //临时存储，修补单步断点的地址
 
     BOOL m_bIsMyStepInto;       //是否为我自己的单步步入
     BOOL m_bIsMyStepOver;       //是否为我自己的单步步过
 
     BOOL m_bIsMyHardReSet;         //硬件断点断步配合
     DWORD m_dwWhichHardReg;        //哪个断点被触发
+
+    BOOL m_bIsMemStep;              //内存断点断步配合
+    LPVOID m_lpTmpMemExec;          //内存断点记录异常指令位置
 
     BOOL m_bIsScript;           //是否为脚本状态
     BOOL m_bIsInput;            //且为无输入状态

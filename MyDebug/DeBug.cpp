@@ -38,11 +38,15 @@ CDeBug::CDeBug()
     m_bIsInput = TRUE;
     
     m_bIsNormalStep = FALSE;
-    m_lpTmpNormalStepAddr = NULL;
+    m_lpTmpStepAddr = NULL;
 
     m_bIsMyHardReSet = FALSE;
 
     m_dwWhichHardReg = 0;
+
+    m_bIsMemStep = FALSE;
+
+    m_lpTmpMemExec = NULL;
 }
 
 CDeBug::~CDeBug()
@@ -580,7 +584,7 @@ BOOL CDeBug::OnBreakPointEvent()       //一般断点
             
             bp->bIsSingleStep = TRUE;
             m_bIsNormalStep = TRUE;
-            m_lpTmpNormalStepAddr = bp->lpAddr;
+            m_lpTmpStepAddr = bp->lpAddr;
             ShowCurAllDbg(pExceptionRecord.ExceptionAddress, CMD_SHOWFIVE);
             return TRUE;
         }
@@ -602,7 +606,7 @@ BOOL CDeBug::OnSingleStepEvent()       //单步异常
     //一般断点
     if(m_bIsNormalStep)
     {
-        if(IsAddrInBpList(m_lpTmpNormalStepAddr, m_NorMalBpLst, pos))
+        if(IsAddrInBpList(m_lpTmpStepAddr, m_NorMalBpLst, pos))
         {
             PMYBREAK_POINT bp = m_NorMalBpLst.GetAt(pos);
             if(bp->bIsSingleStep == TRUE)
@@ -621,6 +625,30 @@ BOOL CDeBug::OnSingleStepEvent()       //单步异常
         }
     }
 
+    //内存断点
+    if(m_bIsMemStep)
+    {
+        if(IsAddrInBpList(m_lpTmpStepAddr, m_MemBpLst, pos))
+        {
+            PMYBREAK_POINT bp = m_MemBpLst.GetAt(pos);
+            if(bp->bIsSingleStep == TRUE)
+            {
+                tcout << TEXT("内存断点命中") << endl;
+                //重设断点
+                if(!VirtualProtectEx(m_hDstProcess, bp->lpAddr, bp->dwLen, PAGE_NOACCESS, &bp->dwOldProtect))
+                {
+                    return FALSE;
+                }
+                
+                bp->bIsSingleStep = FALSE;
+                m_bIsMemStep = FALSE;
+                
+                return Interaction(m_lpTmpMemExec, FALSE);
+            }
+        }
+        
+    }
+    
     //F7单步
     if(m_bIsMyStepInto)
     {
@@ -631,7 +659,6 @@ BOOL CDeBug::OnSingleStepEvent()       //单步异常
             bRet = Interaction(pExceptionRecord.ExceptionAddress);
         }
     }
-
     //硬件断点的断步配合
     if(m_bIsMyHardReSet)
     {
@@ -766,45 +793,29 @@ BOOL CDeBug::OnAccessVolationEvent()   //内存访问异常
     //static BOOL bIsFirstInto = TRUE;
     EXCEPTION_RECORD& pExceptionRecord = m_DbgEvt.u.Exception.ExceptionRecord; 
     POSITION pos = NULL;
-    
-    //     //第一次来，是系统断点，用于断在入口点
-    //     if(bIsFirstInto)
-    //     {
-    //         if(IsAddrInBpList(pExceptionRecord.ExceptionAddress, m_BreakPoint, pos))
-    //         {
-    //             PMYBREAK_POINT bp = m_BreakPoint.GetAt(pos);
-    //             if(WriteRemoteCode(bp->lpAddr, bp->dwOldOrder, bp->dwCurOrder))
-    //             {
-    //                 m_BreakPoint.RemoveAt(pos);
-    //                 delete bp;
-    //             }
-    //         }
-    //         ShowCurAll(pExceptionRecord.ExceptionAddress);
-    //         Interaction(pExceptionRecord.ExceptionAddress);
-    //         bIsFirstInto = FALSE;
-    //         return TRUE;
-    //     }
-    
+
     //其他断点
     if(IsAddrInBpList(pExceptionRecord.ExceptionAddress, m_MemBpLst, pos))
     {
-        PMYBREAK_POINT bp = m_MemBpLst.GetAt(pos);
+        MYBREAK_POINT& bp = *m_MemBpLst.GetAt(pos);
         //还原代码
-        if(!WriteRemoteCode(bp->lpAddr, bp->dwOldOrder, bp->dwCurOrder))
-        {
-            return FALSE;
-        }
+        DWORD dwOldProtect = 0;
         
-
         //常规断点
-        else if(bp->bpState == BP_NORMAL)
+        if(bp.bpState == BP_MEM)
         {
+            if(!VirtualProtectEx(m_hDstProcess, bp.lpAddr, bp.dwLen, bp.dwOldProtect, &dwOldProtect))
+            {
+                OutErrMsg(TEXT("还原内存属性失败。"));
+                return FALSE;
+            }
             //设置单步标志位
             m_DstContext.EFlags |= TF;
             
-            bp->bIsSingleStep = TRUE;
-            m_bIsNormalStep = TRUE;
-            m_lpTmpNormalStepAddr = bp->lpAddr;
+            bp.bIsSingleStep = TRUE;
+            m_bIsMemStep = TRUE;
+            m_lpTmpStepAddr = bp.lpAddr;
+            m_lpTmpMemExec = pExceptionRecord.ExceptionAddress;
             ShowCurAllDbg(pExceptionRecord.ExceptionAddress, CMD_SHOWFIVE);
             return TRUE;
         }
