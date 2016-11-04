@@ -102,11 +102,16 @@ public:
 
     BOOL CmdShowNormalBpLst(CMD_INFO& CmdInfo, LPVOID lpAddr);  //显示一般断点
     BOOL CmdShowHardBpLst(CMD_INFO& CmdInfo, LPVOID lpAddr);    //显示硬件断点
+    BOOL CmdShowMemBpLst(CMD_INFO& CmdInfo, LPVOID lpAddr);     //显示内存断点
 
     BOOL CmdClearNormalBp(CMD_INFO& CmdInfo, LPVOID lpAddr);    //删除一般断点
-    BOOL CmdClearHardBpLst(CMD_INFO& CmdInfo, LPVOID lpAddr);    //显示硬件断点
+    BOOL CmdClearHardBpLst(CMD_INFO& CmdInfo, LPVOID lpAddr);   //删除硬件断点
+    BOOL CmdClearMemBp(CMD_INFO& CmdInfo, LPVOID lpAddr);       //删除内存断点
 
     BOOL ShowMemLst(CMD_INFO& CmdInfo, LPVOID lpAddr);          //显示内存列表
+
+    BOOL SaveScript(CMD_INFO& CmdInfo, LPVOID lpAddr);          //保存脚本
+    BOOL LoadScript(CMD_INFO& CmdInfo, LPVOID lpAddr);          //导入脚本
 
 
     static void __stdcall OutErrMsg(_IN_ LPCTSTR strErrMsg);    //输出错误信息
@@ -138,6 +143,9 @@ private:
     CList<PMODLST, PMODLST&>   m_ModuleLst;     //模块链表
     CList<PMYBREAK_POINT, PMYBREAK_POINT&> m_NorMalBpLst;    //一般断点列表
     CList<PMYBREAK_POINT, PMYBREAK_POINT&> m_HardBpLst;      //硬件断点列表
+    CList<PMYBREAK_POINT, PMYBREAK_POINT&> m_MemBpLst;      //硬件断点列表
+
+    CList<CString*, CString*&> m_CmdOrderLst;                //命令序列列表
     
     PFN_OpenThread m_pfnOpenThread;
 };

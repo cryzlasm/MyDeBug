@@ -82,6 +82,7 @@ BOOL CResolveCMD::Resolve(CMD_INFO& CmdInfo)
         {
             //未知命令
             bIsSupport = FALSE;
+            bRet = FALSE;
             CmdInfo.dwState = CMD_INVALID;
         }
 
@@ -126,7 +127,7 @@ BOOL CResolveCMD::Resolve(CMD_INFO& CmdInfo)
         {
             CmdInfo.dwState = CMD_BP_HARD_LIST;
         }
-        //硬件断点表
+        //清除硬件断点表
         else if(CmdInfo.strCMD == TEXT("bhc"))
         {
             CmdInfo.dwState = CMD_CLEAR_BP_HARD;
@@ -135,6 +136,11 @@ BOOL CResolveCMD::Resolve(CMD_INFO& CmdInfo)
         else if(CmdInfo.strCMD == TEXT("bml"))
         {
             CmdInfo.dwState = CMD_BP_MEMORY_LIST;
+        }
+        //内存断点表
+        else if(CmdInfo.strCMD == TEXT("bmc"))
+        {
+            CmdInfo.dwState = CMD_CLEAR_BP_MEMORY;
         }
         //导入脚本
         else if(CmdInfo.strCMD == TEXT("ls"))
@@ -179,6 +185,7 @@ BOOL CResolveCMD::Resolve(CMD_INFO& CmdInfo)
         else
         {
             //未知命令
+            bRet = FALSE;
             bIsSupport = FALSE;
             CmdInfo.dwState = CMD_INVALID;
         }

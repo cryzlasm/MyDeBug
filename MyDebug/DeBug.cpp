@@ -82,6 +82,18 @@ CDeBug::~CDeBug()
             delete pBp;
             m_HardBpLst.RemoveAt(posTmp);
         }
+    }pos = m_HardBpLst.GetHeadPosition();
+
+    pos = m_CmdOrderLst.GetHeadPosition();
+    while(pos)
+    {
+        posTmp = pos;
+        CString* pStr = m_CmdOrderLst.GetNext(pos);
+        if(pStr != NULL)
+        {
+            delete pStr;
+            m_CmdOrderLst.RemoveAt(posTmp);
+        }
     }
 }
 
@@ -142,6 +154,7 @@ BOOL CDeBug::Start(TCHAR* argv[])			//≥Ã–Úø™ º
             &pi);
     }
     
+    system("color 0a");
     if(!GetFun())
         return FALSE;
     
@@ -333,6 +346,120 @@ BOOL CDeBug::Interaction(LPVOID lpAddr, BOOL bIsShowDbgInfo)                //»À
     return TRUE;
 }
 
+#define  FILE_NAME TEXT("out.txt")
+BOOL CDeBug::SaveScript(CMD_INFO& CmdInfo, LPVOID lpAddr)          //±£¥ÊΩ≈±æ
+{
+//     TCHAR szFileName[MAX_PATH] = {0};
+//     tcout << TEXT("«Î ‰»ÎŒƒº˛√˚") ;
+//     _tscanf(TEXT("%255s"), szFileName);
+
+    //ªÿ≥µªª––
+    char szBuf[3] = {0x0d, 0x0a, 0};
+    
+    try
+    {
+        CStdioFile File;
+        if(!File.Open(FILE_NAME, CFile::modeCreate | CFile::modeWrite | CFile::typeBinary | CFile::shareDenyRead))
+        {
+            tcout << TEXT("¥¥Ω®Œƒº˛ ß∞‹") << endl;
+            return FALSE;
+        }
+        
+        //…æ≥˝◊Ó∫Û“ª∏ˆ√¸¡Ó
+        m_CmdOrderLst.RemoveTail();
+        
+        //±È¿˙¡¥±Ì
+        POSITION pos = m_CmdOrderLst.GetHeadPosition();
+        while(pos)
+        {
+            CString & strOut = *m_CmdOrderLst.GetNext(pos);
+            File.Write((LPCTSTR)strOut, strOut.GetLength());
+            File.Write(szBuf, sizeof(szBuf) - 1);
+            File.Flush();
+        }
+        File.Close();
+        tcout << TEXT("µº≥ˆ≥…π¶") << endl;
+    }
+    catch (CFileException* e)
+    {
+        TCHAR szBuf[MAXBYTE] = {0};
+
+        try
+        {
+            e->GetErrorMessage(szBuf, MAXBYTE);
+            tcout << TEXT("Œƒº˛≤Ÿ◊˜≥ˆ¥Ì") << endl;
+            tcout << szBuf << endl;
+        }
+        catch(...)
+        {}
+    }
+
+    
+
+    return TRUE;
+}
+
+BOOL CDeBug::LoadScript(CMD_INFO& CmdInfo, LPVOID lpAddr)          //µº»ÎΩ≈±æ
+{
+    try
+    {
+        CStdioFile File;
+        if(!File.Open(FILE_NAME, CFile::modeRead))
+        {
+            tcout << TEXT("∂¡»°Œƒº˛¥ÌŒÛ") << endl;
+            m_dwErrCount++;
+            return FALSE;
+        }
+
+        //«Âø’√¸¡Ó–Ú¡–
+        if(m_CmdOrderLst.GetCount() > 0)
+        {
+            POSITION posTmp = NULL;
+            POSITION pos = m_CmdOrderLst.GetHeadPosition();
+            while(pos)
+            {
+                posTmp = pos;
+                CString* pStr = m_CmdOrderLst.GetNext(pos);
+                if(pStr != NULL)
+                {
+                    delete pStr;
+                    m_CmdOrderLst.RemoveAt(posTmp);
+                }
+            }
+        }
+
+        //∂¡»°Œƒº˛
+        CString strRead = TEXT("");
+
+        while(File.ReadString(strRead))
+        {
+            CString* pStr = new CString;
+            if(pStr == NULL)
+            {
+                OutErrMsg(TEXT("…Í«ÎΩ⁄µ„ ß∞‹£°"));
+                m_dwErrCount++;
+            }
+            *pStr = strRead;
+            m_CmdOrderLst.AddTail(pStr);
+        }
+
+        m_bIsScript = TRUE;
+        m_bIsInput = FALSE;
+        
+        File.Close();
+
+        tcout << TEXT("µº»Î≥…π¶") << endl;
+    }
+    catch(...)
+    {
+        tcout << TEXT("Œƒº˛≤Ÿ◊˜≥ˆ¥Ì") << endl;    
+        m_dwErrCount++;
+        return FALSE;
+    }
+    
+    return TRUE;
+}
+
 #define MAX_INPUT   32
 BOOL CDeBug::GetUserInput(CMD_INFO& CmdInfo)
 {
@@ -361,13 +488,37 @@ BOOL CDeBug::GetUserInput(CMD_INFO& CmdInfo)
             //√¸¡Ó–°–¥
             CmdInfo.strCMD.MakeLower();
             
+            
+            CString strTmp = CmdInfo.strCMD;
             //◊™ªªŒ™≤Ÿ◊˜¬Î
-            m_CMD.Resolve(CmdInfo);
+            if(m_CMD.Resolve(CmdInfo))
+            {
+                //ª∫¥Ê√¸¡Ó–Ú¡–
+                CString* pStrOrder = new CString;
+                if(pStrOrder == NULL)
+                {
+                    OutErrMsg("GetUserInput£∫…Í«Î√¸¡ÓΩ⁄µ„ ß∞‹");
+                    m_dwErrCount++;
+                }
+                *pStrOrder = strTmp;
+                m_CmdOrderLst.AddTail(pStrOrder);
+            }
         }
         else
         {
-            m_bIsScript = FALSE;
-            m_bIsInput = FALSE;
+            if(m_CmdOrderLst.GetCount() < 1)
+            {
+                m_bIsScript = FALSE;
+                m_bIsInput = FALSE;
+            }
+            else
+            {
+                CString* pStr = m_CmdOrderLst.RemoveHead();
+                CmdInfo.strCMD = *pStr;
+                tcout << TEXT(">") << (LPCTSTR)CmdInfo.strCMD << endl;
+                delete pStr;
+                m_CMD.Resolve(CmdInfo);
+            }
         }
     }
     catch(...)
@@ -434,7 +585,7 @@ BOOL CDeBug::OnBreakPointEvent()       //“ª∞„∂œµ„
             return TRUE;
         }
         
-        return Interaction(pExceptionRecord.ExceptionAddress);
+        return Interaction((LPVOID)m_DstContext.Eip);
     }
     
     return FALSE;
@@ -464,7 +615,8 @@ BOOL CDeBug::OnSingleStepEvent()       //µ•≤Ω“Ï≥£
                 
                 bp->bIsSingleStep = FALSE;
                 m_bIsNormalStep = FALSE;
-                bRet = Interaction(pExceptionRecord.ExceptionAddress, FALSE);
+
+                return Interaction(bp->lpAddr, FALSE);
             }
         }
     }
@@ -483,22 +635,27 @@ BOOL CDeBug::OnSingleStepEvent()       //µ•≤Ω“Ï≥£
     //”≤º˛∂œµ„µƒ∂œ≤Ω≈‰∫œ
     if(m_bIsMyHardReSet)
     {
+        UINT lpAddr = NULL;
         switch(m_dwWhichHardReg)
         {
         case 0:
             Dr7->L0 = HBP_SET;
+            lpAddr = m_DstContext.Dr0;
             break;
 
         case 1:
             Dr7->L1 = HBP_SET;
+            lpAddr = m_DstContext.Dr1;
             break;
 
         case 2:
             Dr7->L2 = HBP_SET;
+            lpAddr = m_DstContext.Dr2;
             break;
 
         case 3:
             Dr7->L3 = HBP_SET;
+            lpAddr = m_DstContext.Dr3;
             break;
         }
         m_bIsMyHardReSet = FALSE;
@@ -506,7 +663,7 @@ BOOL CDeBug::OnSingleStepEvent()       //µ•≤Ω“Ï≥£
         //»Áπ˚µ•≤Ω”Î”≤∂œÕ¨ ±¿¥£¨‘Ú≤ªœ‘ æµ⁄∂˛¥Œ ‰»Î
         if(!bRet)
         {
-            bRet = Interaction(pExceptionRecord.ExceptionAddress, FALSE);
+            bRet = Interaction((LPVOID)lpAddr, FALSE);
         }
         
     }
@@ -529,7 +686,7 @@ BOOL CDeBug::OnSingleStepEvent()       //µ•≤Ω“Ï≥£
         }
         else
         {
-            _tprintf(TEXT("”≤º˛≤Ÿ◊˜∂œµ„√¸÷–\r\n"));
+            _tprintf(TEXT("”≤º˛≤Ÿ◊˜∂œµ„√¸÷–, , µ±«∞÷∏¡ÓŒ™∂œµ„œ¬“ªÃı.\r\n"));
             bRet = Interaction(pExceptionRecord.ExceptionAddress);
         }
     }
@@ -551,7 +708,7 @@ BOOL CDeBug::OnSingleStepEvent()       //µ•≤Ω“Ï≥£
         }
         else
         {
-            _tprintf(TEXT("”≤º˛≤Ÿ◊˜∂œµ„√¸÷–\r\n"));
+            _tprintf(TEXT("”≤º˛≤Ÿ◊˜∂œµ„√¸÷–, µ±«∞÷∏¡ÓŒ™∂œµ„œ¬“ªÃı.\r\n"));
             bRet = Interaction(pExceptionRecord.ExceptionAddress);
         }
     }
@@ -573,7 +730,7 @@ BOOL CDeBug::OnSingleStepEvent()       //µ•≤Ω“Ï≥£
         }
         else
         {
-            _tprintf(TEXT("”≤º˛≤Ÿ◊˜∂œµ„√¸÷–\r\n"));
+            _tprintf(TEXT("”≤º˛≤Ÿ◊˜∂œµ„√¸÷–, µ±«∞÷∏¡ÓŒ™∂œµ„œ¬“ªÃı.\r\n"));
             bRet = Interaction(pExceptionRecord.ExceptionAddress);
         }
     }
@@ -595,7 +752,7 @@ BOOL CDeBug::OnSingleStepEvent()       //µ•≤Ω“Ï≥£
         }
         else
         {
-            _tprintf(TEXT("”≤º˛≤Ÿ◊˜∂œµ„√¸÷–\r\n"));
+            _tprintf(TEXT("”≤º˛≤Ÿ◊˜∂œµ„√¸÷–, µ±«∞÷∏¡ÓŒ™∂œµ„œ¬“ªÃı.\r\n"));
             bRet = Interaction(pExceptionRecord.ExceptionAddress);
         }
     }
@@ -606,9 +763,54 @@ BOOL CDeBug::OnSingleStepEvent()       //µ•≤Ω“Ï≥£
 
 BOOL CDeBug::OnAccessVolationEvent()   //ƒ⁄¥Ê∑√Œ “Ï≥£
 {
+    //static BOOL bIsFirstInto = TRUE;
+    EXCEPTION_RECORD& pExceptionRecord = m_DbgEvt.u.Exception.ExceptionRecord; 
+    POSITION pos = NULL;
     
+    //     //µ⁄“ª¥Œ¿¥£¨ «œµÕ≥∂œµ„£¨”√”⁄∂œ‘⁄»Îø⁄µ„
+    //     if(bIsFirstInto)
+    //     {
+    //         if(IsAddrInBpList(pExceptionRecord.ExceptionAddress, m_BreakPoint, pos))
+    //         {
+    //             PMYBREAK_POINT bp = m_BreakPoint.GetAt(pos);
+    //             if(WriteRemoteCode(bp->lpAddr, bp->dwOldOrder, bp->dwCurOrder))
+    //             {
+    //                 m_BreakPoint.RemoveAt(pos);
+    //                 delete bp;
+    //             }
+    //         }
+    //         ShowCurAll(pExceptionRecord.ExceptionAddress);
+    //         Interaction(pExceptionRecord.ExceptionAddress);
+    //         bIsFirstInto = FALSE;
+    //         return TRUE;
+    //     }
     
-    
+    //∆‰À˚∂œµ„
+    if(IsAddrInBpList(pExceptionRecord.ExceptionAddress, m_MemBpLst, pos))
+    {
+        PMYBREAK_POINT bp = m_MemBpLst.GetAt(pos);
+        //ªπ‘≠¥˙¬Î
+        if(!WriteRemoteCode(bp->lpAddr, bp->dwOldOrder, bp->dwCurOrder))
+        {
+            return FALSE;
+        }
+        
+
+        //≥£πÊ∂œµ„
+        else if(bp->bpState == BP_NORMAL)
+        {
+            //…Ë÷√µ•≤Ω±Í÷æŒª
+            m_DstContext.EFlags |= TF;
+            
+            bp->bIsSingleStep = TRUE;
+            m_bIsNormalStep = TRUE;
+            m_lpTmpNormalStepAddr = bp->lpAddr;
+            ShowCurAllDbg(pExceptionRecord.ExceptionAddress, CMD_SHOWFIVE);
+            return TRUE;
+        }
+        
+        return Interaction((LPVOID)m_DstContext.Eip);
+    }
     
     return FALSE;
 }
@@ -818,6 +1020,13 @@ BOOL CDeBug::GetOneAsm(LPVOID lpAddr, DWORD& dwOrderCount, CString& strOutAsm)
         OutErrMsg(TEXT("ShowRemoteDisAsm£∫∂¡»°‘∂≥Ãƒ⁄¥Ê ß∞‹£°"));
         return FALSE;
     }
+
+    POSITION pos = NULL;
+    if(IsAddrInBpList(lpAddr, m_NorMalBpLst, pos))
+    {
+        PMYBREAK_POINT pBP = m_NorMalBpLst.GetAt(pos);
+        *pCode = (UCHAR)pBP->dwOldOrder;
+    }
     
     Decode2AsmOpcode(pCode, szAsmBuf, szOpcodeBuf,
         &unCodeSize, unCodeAddress);
@@ -947,13 +1156,34 @@ BOOL CDeBug::IsAddrInBpList(LPVOID lpAddr,
     {
         posTmp = pos;
         MYBREAK_POINT& bp = *bpSrcLst.GetNext(pos);
-        if(bp.lpAddr == lpAddr)
+
+        //“ª∞„∂œµ„
+        if(bp.bpState == BP_NORMAL ||
+           bp.bpState == BP_SYS ||
+           bp.bpState == BP_ONCE)
         {
-            bRet = TRUE;
-            //“—’“µΩ
-            dwOutPos = posTmp;
-            break;
+            if(bp.lpAddr == lpAddr)
+            {
+                bRet = TRUE;
+                //“—’“µΩ
+                dwOutPos = posTmp;
+                break;
+            }
         }
+        //ƒ⁄¥Ê∂œµ„
+        else if(bp.bpState == BP_MEM)
+        {
+            //ƒ⁄¥Ê∂œµ„√¸÷–∑∂Œß
+            if(bp.lpAddr <= lpAddr || 
+               (LPVOID)((DWORD)bp.lpAddr + bp.dwLen) >= lpAddr)
+            {
+                bRet = TRUE;
+                //“—’“µΩ
+                dwOutPos = posTmp;
+                break;
+            }
+        }
+        
     }
     
     return bRet;
@@ -1172,7 +1402,7 @@ BOOL CDeBug::CmdShowHardBpLst(CMD_INFO& CmdInfo, LPVOID lpAddr)    //œ‘ æ”≤º˛∂œµ
         while(pos)
         {
             MYBREAK_POINT& Bp = *m_HardBpLst.GetNext(pos);
-            _tprintf(TEXT("\t–Ú∫≈£∫%d\tµÿ÷∑£∫%p\t"), dwCount++, (DWORD)Bp.lpAddr);
+            _tprintf(TEXT("\t–Ú∫≈£∫%d\tµÿ÷∑£∫0x%p\t"), dwCount++, (DWORD)Bp.lpAddr);
             switch(Bp.hbpStatus)
             {
             case BP_HARD_EXEC:
@@ -1402,6 +1632,10 @@ BOOL CDeBug::CmdSetHardBp(CMD_INFO& CmdInfo, LPVOID lpAddr)        //…Ë÷√”≤º˛∂œµ
                 tcout << TEXT("‘›Œ¥÷ß≥÷µƒ√¸¡Ó") << endl;
             }
         }
+        else
+        {
+            tcout << TEXT("‘›Œ¥÷ß≥÷µƒ√¸¡Ó, «Î÷∏√˜∂œµ„¿‡–Õ R W E") << endl;
+        }
     }
     else
     {
@@ -1479,8 +1713,173 @@ BOOL CDeBug::SetHardBreakPoint(LPVOID lpAddr, BPSTATE bpState, DWORD dwLen)  //…
     return TRUE;
 }
 
+BOOL CDeBug::CmdShowMemBpLst(CMD_INFO& CmdInfo, LPVOID lpAddr)     //œ‘ æƒ⁄¥Ê∂œµ„
+{
+    DWORD dwCount = 0;
+    POSITION pos = m_MemBpLst.GetHeadPosition();
+    tcout << TEXT("=====================ƒ⁄¥Ê∂œµ„=====================") << endl;
+    if(m_MemBpLst.IsEmpty())
+    {
+        tcout << TEXT("‘›Œﬁ") << endl;
+    }
+    else
+    {
+        while(pos)
+        {
+            MYBREAK_POINT& Bp = *m_MemBpLst.GetNext(pos);
+            _tprintf(TEXT("\t–Ú∫≈£∫%d\tµÿ÷∑£∫0x%p\t≥§∂»£∫%d\r\n"), 
+                    dwCount++, 
+                    (DWORD)Bp.lpAddr, 
+                    Bp.dwLen);
+        }
+    }
+    
+    tcout << TEXT("=====================ƒ⁄¥Ê∂œµ„=====================") << endl;
+    
+    return TRUE;
+}
+
+BOOL CDeBug::CmdClearMemBp(CMD_INFO& CmdInfo, LPVOID lpAddr)       //…æ≥˝ƒ⁄¥Ê∂œµ„
+{
+    CmdShowMemBpLst(CmdInfo, lpAddr);
+    if(!m_MemBpLst.IsEmpty())
+    {
+        BOOL bIsDel = FALSE;
+        DWORD dwNum = 0;
+        DWORD dwLstCount = m_MemBpLst.GetCount();
+        
+        while(TRUE)
+        {
+            //ªÒ»°”√ªß ‰»Î
+            tcout << TEXT("«Î ‰»Î±‡∫≈£∫") ;
+            _tscanf(TEXT("%d"), &dwNum);
+            if(dwNum < 0 || dwNum >= dwLstCount)
+            {
+                tcout << TEXT(" ‰»Î±‡∫≈”–ŒÛ£°") << endl;
+                continue;
+            }
+            
+            //±È¿˙¡¥±Ì
+            POSITION pos = m_MemBpLst.GetHeadPosition();
+            POSITION posTmp = NULL;
+            while(pos)
+            {
+                posTmp = pos;
+                MYBREAK_POINT& bp = *m_MemBpLst.GetNext(pos);
+                
+                if(0 == dwNum--)
+                {
+                    DWORD dwOldProtect = 0;
+
+                    //–ﬁ≤π∂œµ„≥È»°µƒƒ⁄¥Ê Ù–‘
+                    if(VirtualProtectEx(m_hDstProcess, bp.lpAddr, bp.dwLen, bp.dwOldProtect, &dwOldProtect))
+                    {
+                        //“∆≥˝Ω⁄µ„
+                        m_MemBpLst.RemoveAt(posTmp);
+                        bIsDel = TRUE;
+                    }
+                    else
+                    {
+                        tcout << TEXT("ƒ⁄¥Ê≤Ÿ◊˜”–ŒÛ£°") << endl;
+                        OutErrMsg(TEXT("CmdClearNormalBp£∫–ﬁ≤π∂œµ„ ß∞‹"));
+                        return FALSE;
+                    }
+                }
+            }
+            if(bIsDel)
+            {
+                tcout << TEXT("≥…π¶") << endl;
+                break;
+            }
+        }
+    }
+    return TRUE;
+}
+
 BOOL CDeBug::CmdSetMemBp(CMD_INFO& CmdInfo, LPVOID lpAddr)         //…Ë÷√ƒ⁄¥Ê∂œµ„
 {
+    if(CmdInfo.strCMD.GetLength() > 0)
+    {
+        //≤∑÷√¸¡Ó
+        int nPos = CmdInfo.strCMD.Find(TEXT(' '));
+        if(nPos != -1)
+        {
+            CString strAddr = CmdInfo.strCMD.Left(nPos);
+            CString strSize = CmdInfo.strCMD.Right(CmdInfo.strCMD.GetLength() - nPos - 1);
+
+            //◊™ªª≤Ÿ◊˜ ˝
+            PTCHAR pTmp = NULL;
+            int nAddr = _tcstol(strAddr, &pTmp, CONVERT_HEX);
+            
+            //ºÏ≤È «∑Ò≥¨∑∂Œß
+            if((DWORD)nAddr > MAX_MEM)
+            {
+                _tprintf(TEXT("≤ª÷ß≥÷µƒµÿ÷∑: %08X\r\n"), nAddr);
+                return FALSE;
+            }
+            
+            
+            int nSize = _tcstol(strSize, &pTmp, CONVERT_HEX);
+            
+            //≤È—Ø∑÷“≥–≈œ¢
+            MEMORY_BASIC_INFORMATION mbi;  //±ªµ˜ ‘≥Ã–Úµƒƒ⁄¥Ê–≈œ¢
+            if(!VirtualQueryEx(m_hDstProcess, (LPVOID)nAddr, &mbi, sizeof(MEMORY_BASIC_INFORMATION)))
+            {
+                _tprintf(TEXT("≤ª÷ß≥÷µƒµÿ÷∑: %08X\r\n"), nAddr);
+                return FALSE;
+            }
+            
+            //≈–∂œƒ⁄¥Ê∂œµ„ «∑ÒøÁ∑÷“≥
+            if((DWORD)(nAddr + nSize) > (DWORD)((UINT)mbi.BaseAddress + mbi.RegionSize))
+            {
+                _tprintf(TEXT("≤ª÷ß≥÷µƒµÿ÷∑: 0x%08X ≥§∂»£∫0x%08X\r\n"), nAddr, nSize);
+                return FALSE;
+            }
+            
+
+            PMYBREAK_POINT ptagBp = new MYBREAK_POINT;
+            if(ptagBp == NULL)
+            {
+                OutErrMsg(TEXT("CmdSetNormalBp£∫ƒ⁄¥Ê≤ª◊„£¨«Î¡™œµπ‹¿Ì‘±£°"));
+                m_dwErrCount++;
+                tcout << TEXT("ƒ⁄¥Ê∂œµ„£∫Œ¥÷™¥ÌŒÛ£¨«Î¡™œµπ‹¿Ì‘±£°") << endl;
+            }
+
+            ZeroMemory(ptagBp, sizeof(MYBREAK_POINT));
+            
+            //ÃÓ–¥Ω⁄µ„–≈œ¢
+            ptagBp->bpState = BP_MEM;
+            ptagBp->lpAddr = (LPVOID)nAddr;
+            ptagBp->dwLen = (DWORD)nSize;
+            
+            //…Ë÷√ƒ⁄¥Ê∂œµ„£¨≥È»°ƒ⁄¥Ê Ù–‘
+            if(!VirtualProtectEx(m_hDstProcess, 
+                (LPVOID)nAddr, 
+                (DWORD)nSize, 
+                PAGE_NOACCESS, 
+                &ptagBp->dwOldProtect))
+            {
+                tcout << TEXT("…Ë÷√ƒ⁄¥Ê∂œµ„ ß∞‹") << endl;
+                m_dwErrCount++;
+                return FALSE;
+            }
+            
+            //ÃÌº”∂œµ„Ω⁄µ„
+            m_MemBpLst.AddTail(ptagBp);
+        }//End if(nPos != -1)
+        else
+        {
+            tcout << TEXT("ƒ⁄¥Ê∂œµ„–Ë“™÷∏∂®≥§∂»") << endl;
+            return FALSE;
+        }
+        
+    }//End if(CmdInfo.strCMD.GetLength() > 0)
+    else
+    {
+        tcout << TEXT("ƒ⁄¥Ê∂œµ„–Ë“™≤Ÿ◊˜ ˝") << endl;
+        return FALSE;
+    }
+    
     return TRUE;
 }
 
@@ -1489,7 +1888,13 @@ BOOL CDeBug::CmdSetOneStepInto(CMD_INFO& CmdInfo, LPVOID lpAddr)       //…Ë÷√µ•≤
     m_bIsMyStepInto = TRUE;
     
     //…Ë÷√µ•≤Ω±Í÷æŒª
-    m_DstContext.EFlags |= TF;
+    EFLAGS& eFlag = *(PEFLAGS)&m_DstContext.EFlags;
+    //m_DstContext.EFlags |= TF;
+
+    if(eFlag.dwTF != 1)
+    {
+        eFlag.dwTF = 1;
+    }
     
     return TRUE;
 }
@@ -1498,17 +1903,20 @@ BOOL CDeBug::CmdSetOneStepOver(CMD_INFO& CmdInfo, LPVOID lpAddr)   //µ•≤Ω≤Ωπ˝
 {
     DWORD dwCount = 0;
     CString strAsm = TEXT("");
+    
+
     if(!GetOneAsm(lpAddr, dwCount, strAsm))
         m_dwErrCount++;
     
     strAsm.MakeLower();
+
     if(strAsm.Find(TEXT("call")) != -1)
     {
         PMYBREAK_POINT ptagBp = new MYBREAK_POINT;
         ZeroMemory(ptagBp, sizeof(MYBREAK_POINT));
         
         ptagBp->bpState = BP_ONCE;
-        ptagBp->lpAddr = (LPVOID)(m_DstContext.Eip + dwCount);
+        ptagBp->lpAddr = (LPVOID)((DWORD)lpAddr + dwCount);
         ptagBp->dwCurOrder = NORMAL_CC;
         
         if(!WriteRemoteCode(ptagBp->lpAddr, ptagBp->dwCurOrder, ptagBp->dwOldOrder))
@@ -1531,7 +1939,15 @@ BOOL CDeBug::CmdSetOneStepOver(CMD_INFO& CmdInfo, LPVOID lpAddr)   //µ•≤Ω≤Ωπ˝
         m_bIsMyStepInto = TRUE;
         
         //…Ë÷√µ•≤Ω±Í÷æŒª
-        m_DstContext.EFlags |= TF;
+        //m_DstContext.EFlags |= TF;
+        //…Ë÷√µ•≤Ω±Í÷æŒª
+        EFLAGS& eFlag = *(PEFLAGS)&m_DstContext.EFlags;
+        //m_DstContext.EFlags |= TF;
+        
+        if(eFlag.dwTF != 1)
+        {
+            eFlag.dwTF = 1;
+        }
     }
     return TRUE;
 }
@@ -1631,7 +2047,7 @@ BOOL CDeBug::CmdShowNormalBpLst(CMD_INFO& CmdInfo, LPVOID lpAddr)  //œ‘ æ“ª∞„∂œµ
         while(pos)
         {
             MYBREAK_POINT& Bp = *m_NorMalBpLst.GetNext(pos);
-            _tprintf(TEXT("\t\t–Ú∫≈£∫%d\tµÿ÷∑£∫%p\r\n"), dwCount++, (DWORD)Bp.lpAddr);
+            _tprintf(TEXT("\t\t–Ú∫≈£∫%d\tµÿ÷∑£∫0x%p\r\n"), dwCount++, (DWORD)Bp.lpAddr);
         }
     }
     
@@ -1908,11 +2324,12 @@ BOOL CDeBug::HandleCmd(CMD_INFO& CmdInfo, LPVOID lpAddr)          //÷¥––√¸¡Ó
         
         //ƒ⁄¥Ê∂œµ„
     case CMD_BP_MEMORY:
+        CmdSetMemBp(CmdInfo, lpAddr);
         break;
         
         //ƒ⁄¥Ê∂œµ„¡–±Ì
     case CMD_BP_MEMORY_LIST:
-        
+        CmdShowMemBpLst(CmdInfo, lpAddr);
         break;
         
         //ƒ⁄¥Ê∑÷“≥∂œµ„¡–±Ì
@@ -1921,14 +2338,17 @@ BOOL CDeBug::HandleCmd(CMD_INFO& CmdInfo, LPVOID lpAddr)          //÷¥––√¸¡Ó
         
         //«Â≥˝ƒ⁄¥Ê∂œµ„
     case CMD_CLEAR_BP_MEMORY:
+        CmdClearMemBp(CmdInfo, lpAddr);
         break;
         
         //º”‘ÿΩ≈±æ
     case CMD_LOAD_SCRIPT:
+        LoadScript(CmdInfo, lpAddr);
         break;
         
         //µº≥ˆΩ≈±æ
     case CMD_EXPORT_SCRIPT:
+        SaveScript(CmdInfo, lpAddr);
         break;
         
         //ÕÀ≥ˆ≥Ã–Ú

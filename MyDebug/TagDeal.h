@@ -81,11 +81,24 @@ typedef struct _tagBreakPoint
 {
     BPSTATE     bpState;        //断点状态
     LPVOID      lpAddr;         //断点地址
+    
+    //一般断点字段
     DWORD       dwOldOrder;     //原指令
     DWORD       dwCurOrder;     //现在的指令
+
     BOOL        bIsSingleStep;  //是否设置单步
+
+    //硬件断点字段
+    BPSTATE     hbpStatus;      //断点属性  R W E  读 写 执行
+
+    //硬件断点与内存断点公用字段
     DWORD       dwLen;          //断点长度
-    BPSTATE     hbpStatus;       //断点属性  R W E  读 写 执行
+
+    //内存断点字段
+    DWORD       dwOldProtect;   //断点原有保护属性
+
+
+
 
 }MYBREAK_POINT, *PMYBREAK_POINT;
 
